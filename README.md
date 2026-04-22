@@ -9,7 +9,7 @@
 ```bash
 # Клонировать репозиторий
 git clone <repo-url>
-cd text_classifier_project
+cd ml_classifier_project
 
 # Создать виртуальное окружение
 python -m venv venv
