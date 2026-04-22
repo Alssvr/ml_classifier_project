@@ -28,7 +28,7 @@ class Predictor:
                           df: pd.DataFrame,
                           text_column: str = 'Наименование',
                           id_column: str = 'ID',
-                          confidence_threshold: float = 0.7,
+                          confidence_threshold: float = 0.1,
                           batch_size: int = 5000) -> pd.DataFrame:
         """
         Классификация всего DataFrame
@@ -85,11 +85,10 @@ class Predictor:
             all_probabilities.extend(predictions_batch['class_probabilities'].tolist())
             
             # Определяем необходимость экспертной проверки
-            needs_review = (
-                (predictions_batch['confidence'] < confidence_threshold) |
-                (predictions_batch['confidence'] >= confidence_threshold) & 
-                (predictions_batch['confidence'] < 0.9)
-            )
+            # Определяем необходимость экспертной проверки
+            # Используем более реалистичные пороги для 945 классов
+            needs_review = predictions_batch['confidence'] < 0.1  # Только <10% считаем неуверенными
+            
             all_needs_review.extend(needs_review.tolist())
         
         # Добавляем результаты

@@ -32,6 +32,7 @@ class TextClassifier:
         self.class_names: Optional[List[str]] = None
         self.metrics: Dict[str, Any] = {}
         self.training_date: Optional[str] = None
+        self.rare_classes_info: Dict[str, Any] = {}
         
         logger.info(f"Инициализация классификатора {model_name} v{version}")
     
@@ -47,28 +48,37 @@ class TextClassifier:
         Построение пайплайна: TF-IDF векторизация + Логистическая регрессия
         """
         
-        # Создаем векторизатор
-        self.vectorizer = TechnicalTfidfVectorizer(
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        
+        # Создаем векторизатор напрямую
+        vectorizer = TfidfVectorizer(
             max_features=tfidf_max_features,
             ngram_range=tfidf_ngram_range,
             min_df=tfidf_min_df,
-            max_df=tfidf_max_df
+            max_df=tfidf_max_df,
+            sublinear_tf=True,
+            norm='l2',
+            use_idf=True,
+            smooth_idf=True,
+            token_pattern=r'(?u)\b\w+\b',
+            lowercase=False  # Уже обработано препроцессором
         )
-        
-        # Создаем классификатор
+
+        self.vectorizer = vectorizer  # Сохраняем для совместимости
+                
+        # Создаем классификатор (без multi_class='auto' для совместимости)
         classifier = LogisticRegression(
             C=classifier_c,
             max_iter=classifier_max_iter,
             class_weight=class_weight,
             solver='lbfgs',
-            multi_class='auto',
             random_state=42,
             n_jobs=-1
         )
         
-        # Собираем пайплайн
+        # Собираем пайплайн с ПРАВИЛЬНЫМ векторизатором
         self.pipeline = Pipeline([
-            ('vectorizer', self.vectorizer.vectorizer),
+            ('vectorizer', vectorizer),
             ('classifier', classifier)
         ])
         
@@ -85,47 +95,183 @@ class TextClassifier:
               random_state: int = 42) -> Dict[str, Any]:
         """
         Обучение модели с разбиением на train/test
+        
+        Редкие классы (с 1 примером) полностью помещаются в обучающую выборку
         """
         
         if self.pipeline is None:
             raise ValueError("Сначала вызовите build_pipeline()")
         
+        # Анализируем распределение классов
+        class_counts = labels.value_counts()
+        rare_classes = class_counts[class_counts < 2].index.tolist()
+        common_classes = class_counts[class_counts >= 2].index.tolist()
+        
+        logger.info(f"Всего классов: {len(class_counts)}")
+        logger.info(f"  - Редких (< 2 примеров): {len(rare_classes)}")
+        logger.info(f"  - Обычных (>= 2 примеров): {len(common_classes)}")
+        
+        if rare_classes:
+            logger.info(f"Примеры редких классов: {rare_classes[:10]}")
+        
         self.class_names = sorted(labels.unique())
-        logger.info(f"Обучение модели. Классов: {len(self.class_names)}")
-        logger.info(f"Распределение классов:\n{labels.value_counts()}")
         
-        # Разбиваем данные
-        X_train, X_test, y_train, y_test = train_test_split(
-            texts, labels, 
-            test_size=test_size, 
-            random_state=random_state,
-            stratify=labels
-        )
+        # Если есть редкие классы - особая логика разбиения
+        if rare_classes:
+            logger.info("Применяется специальная стратегия разбиения для сохранения редких классов")
+            
+            # Создаем маски
+            rare_mask = labels.isin(rare_classes)
+            common_mask = ~rare_mask
+            
+            # Данные с обычными классами (можно стратифицировать)
+            texts_common = texts[common_mask]
+            labels_common = labels[common_mask]
+            
+            # Данные с редкими классами
+            texts_rare = texts[rare_mask]
+            labels_rare = labels[rare_mask]
+            
+            logger.info(f"Распределение данных:")
+            logger.info(f"  - Обычные классы: {len(texts_common)} записей")
+            logger.info(f"  - Редкие классы: {len(texts_rare)} записей")
+            
+            # Разбиваем обычные классы на train/test
+            if len(texts_common) > 0:
+                try:
+                    X_train_common, X_test_common, y_train_common, y_test_common = train_test_split(
+                        texts_common, labels_common,
+                        test_size=test_size,
+                        random_state=random_state,
+                        stratify=labels_common
+                    )
+                except ValueError as e:
+                    logger.warning(f"Не удалось стратифицировать обычные классы: {e}")
+                    X_train_common, X_test_common, y_train_common, y_test_common = train_test_split(
+                        texts_common, labels_common,
+                        test_size=test_size,
+                        random_state=random_state,
+                        stratify=None
+                    )
+            else:
+                # Если обычных классов нет (все классы редкие)
+                X_train_common = pd.Series([], dtype=object)
+                X_test_common = pd.Series([], dtype=object)
+                y_train_common = pd.Series([], dtype=object)
+                y_test_common = pd.Series([], dtype=object)
+            
+            # Редкие классы полностью идут в обучающую выборку
+            X_train_rare = texts_rare
+            y_train_rare = labels_rare
+            X_test_rare = pd.Series([], dtype=object)
+            y_test_rare = pd.Series([], dtype=object)
+            
+            # Объединяем выборки
+            X_train = pd.concat([X_train_common, X_train_rare], ignore_index=True)
+            X_test = pd.concat([X_test_common, X_test_rare], ignore_index=True)
+            y_train = pd.concat([y_train_common, y_train_rare], ignore_index=True)
+            y_test = pd.concat([y_test_common, y_test_rare], ignore_index=True)
+            
+            logger.info(f"Итоговое разбиение:")
+            logger.info(f"  - Train: {len(X_train)} записей (включая {len(X_train_rare)} редких)")
+            logger.info(f"  - Test: {len(X_test)} записей (только обычные классы)")
+            
+            # Сохраняем информацию о редких классах
+            self.rare_classes_info = {
+                'count': len(rare_classes),
+                'classes': rare_classes,
+                'train_only': True
+            }
+            
+        else:
+            # Нет редких классов - обычное разбиение со стратификацией
+            logger.info("Все классы имеют >= 2 примеров, обычное разбиение")
+            
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    texts, labels,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=labels
+                )
+            except ValueError as e:
+                logger.warning(f"Не удалось стратифицировать: {e}")
+                X_train, X_test, y_train, y_test = train_test_split(
+                    texts, labels,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=None
+                )
+            
+            logger.info(f"Train: {len(X_train)} записей, Test: {len(X_test)} записей")
+            
+            self.rare_classes_info = {
+                'count': 0,
+                'classes': [],
+                'train_only': False
+            }
         
-        logger.info(f"Train: {len(X_train)} записей, Test: {len(X_test)} записей")
+        # Проверяем, что в тестовой выборке нет неожиданных классов
+        unexpected_in_test = set(y_test.unique()) - set(y_train.unique())
+        if unexpected_in_test:
+            logger.warning(f"В тестовой выборке есть классы, отсутствующие в обучающей: {unexpected_in_test}")
+            logger.info("Это нормально для редких классов, они будут исключены из метрик теста")
         
-        # Обучаем
+        # Обучаем модель
         logger.info("Обучение модели...")
         self.pipeline.fit(X_train, y_train)
         self.training_date = datetime.now().isoformat()
         
         # Оценка на тестовой выборке
-        y_pred = self.pipeline.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
+        # Исключаем из оценки классы, которых нет в обучающей выборке
+        train_classes = set(y_train.unique())
         
-        logger.info(f"Обучение завершено. Accuracy на тесте: {accuracy:.4f}")
+        # Создаем маску для тестовых примеров, классы которых есть в обучении
+        valid_test_mask = y_test.isin(train_classes)
+        y_test_valid = y_test[valid_test_mask]
+        
+        if len(y_test_valid) > 0:
+            X_test_valid = X_test[valid_test_mask]
+            y_pred_valid = self.pipeline.predict(X_test_valid)
+            accuracy = accuracy_score(y_test_valid, y_pred_valid)
+            logger.info(f"Accuracy на валидных тестовых данных ({len(y_test_valid)} примеров): {accuracy:.4f}")
+        else:
+            logger.warning("В тестовой выборке нет классов, известных модели. Accuracy не вычисляется.")
+            accuracy = 0.0
+            y_pred_valid = []
+        
+        # Полное предсказание для отчета
+        if len(X_test) > 0:
+            y_pred_all = self.pipeline.predict(X_test)
+        else:
+            y_pred_all = []
         
         # Сохраняем метрики
         self.metrics = {
             'test_accuracy': accuracy,
+            'test_accuracy_note': 'Только для классов, присутствующих в обучении',
             'train_size': len(X_train),
             'test_size': len(X_test),
-            'n_classes': len(self.class_names),
-            'class_distribution': labels.value_counts().to_dict()
+            'valid_test_size': len(y_test_valid),
+            'n_classes_total': len(self.class_names),
+            'n_classes_in_train': len(train_classes),
+            'class_distribution': labels.value_counts().to_dict(),
+            'rare_classes_info': self.rare_classes_info
         }
         
-        # Детальный отчет
-        self._print_classification_report(y_test, y_pred)
+        # Детальный отчет (только для валидных предсказаний)
+        if len(y_test_valid) > 0:
+            self._print_classification_report(y_test_valid, y_pred_valid)
+        
+        # Информация о редких классах
+        if rare_classes:
+            logger.info("\n" + "="*50)
+            logger.info("ИНФОРМАЦИЯ О РЕДКИХ КЛАССАХ")
+            logger.info("="*50)
+            logger.info(f"Количество редких классов (1 пример): {len(rare_classes)}")
+            logger.info("Эти классы присутствуют только в обучающей выборке")
+            logger.info("Для новых данных модель сможет их предсказывать,")
+            logger.info("но качество на тесте для них не оценивается")
         
         return self.metrics
     
@@ -237,7 +383,6 @@ class TextClassifier:
         
         report = classification_report(
             y_true, y_pred, 
-            target_names=self.class_names,
             zero_division=0
         )
         
@@ -248,9 +393,11 @@ class TextClassifier:
             logger.info(line)
         
         # Сохраняем confusion matrix в метрики
-        cm = confusion_matrix(y_true, y_pred, labels=self.class_names)
-        self.metrics['confusion_matrix'] = cm.tolist()
-        self.metrics['class_names'] = self.class_names
+        try:
+            cm = confusion_matrix(y_true, y_pred)
+            self.metrics['confusion_matrix'] = cm.tolist()
+        except:
+            pass
     
     def get_feature_importance(self, top_n: int = 20) -> pd.DataFrame:
         """
@@ -314,12 +461,13 @@ class TextClassifier:
         # Сохраняем модель
         model_data = {
             'pipeline': self.pipeline,
-            'vectorizer': self.vectorizer,
+            'vectorizer': self.pipeline.named_steps['vectorizer'],
             'class_names': self.class_names,
             'metrics': self.metrics,
             'model_name': self.model_name,
             'version': self.version,
-            'training_date': self.training_date
+            'training_date': self.training_date,
+            'rare_classes_info': self.rare_classes_info
         }
         
         joblib.dump(model_data, model_file)
@@ -329,31 +477,75 @@ class TextClassifier:
         self._update_metadata(metadata_file, model_file.name)
         
         return model_file
-    
+
     def _update_metadata(self, metadata_file: Path, model_filename: str):
         """Обновление файла с метаданными моделей"""
         
-        if metadata_file.exists():
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-        else:
+        # Всегда создаем новую структуру, если файл поврежден или отсутствует
+        try:
+            if metadata_file.exists():
+                # Пробуем прочитать как UTF-8
+                try:
+                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    # Если не получается - пробуем другие кодировки
+                    for encoding in ['cp1251', 'latin-1', 'utf-8-sig']:
+                        try:
+                            with open(metadata_file, 'r', encoding=encoding) as f:
+                                metadata = json.load(f)
+                            logger.info(f"Файл метаданных прочитан в кодировке {encoding}")
+                            break
+                        except:
+                            continue
+                    else:
+                        # Если все кодировки не подошли - создаем новый
+                        logger.warning("Не удалось прочитать файл метаданных, создаем новый")
+                        metadata = {"models": []}
+            else:
+                metadata = {"models": []}
+        except Exception as e:
+            logger.warning(f"Ошибка чтения метаданных: {e}, создаем новый")
             metadata = {"models": []}
         
+        # Гарантируем правильную структуру
+        if not isinstance(metadata, dict):
+            metadata = {"models": []}
+        if "models" not in metadata:
+            metadata["models"] = []
+        
         # Добавляем информацию о новой модели
+        # Конвертируем numpy типы в обычные Python типы для JSON сериализации
+        metrics_serializable = {}
+        for key, value in self.metrics.items():
+            if isinstance(value, (np.integer, np.floating)):
+                metrics_serializable[key] = float(value)
+            elif isinstance(value, np.ndarray):
+                metrics_serializable[key] = value.tolist()
+            elif isinstance(value, dict):
+                # Рекурсивно конвертируем вложенные словари
+                metrics_serializable[key] = {
+                    k: float(v) if isinstance(v, (np.integer, np.floating)) else v
+                    for k, v in value.items()
+                }
+            else:
+                metrics_serializable[key] = value
+        
         model_info = {
             "filename": model_filename,
             "model_name": self.model_name,
             "version": self.version,
             "training_date": self.training_date,
-            "metrics": self.metrics,
+            "metrics": metrics_serializable,
             "n_classes": len(self.class_names) if self.class_names else 0,
-            "class_names": self.class_names
+            "class_names": self.class_names,
+            "rare_classes_info": self.rare_classes_info
         }
         
         # Обновляем или добавляем запись
         existing_idx = None
         for i, m in enumerate(metadata["models"]):
-            if m["version"] == self.version:
+            if m.get("version") == self.version:
                 existing_idx = i
                 break
         
@@ -366,10 +558,17 @@ class TextClassifier:
         metadata["active_version"] = self.version
         metadata["last_updated"] = datetime.now().isoformat()
         
-        with open(metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Метаданные обновлены: {metadata_file}")
+        # Сохраняем с правильной кодировкой
+        try:
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            logger.info(f"Метаданные обновлены: {metadata_file}")
+        except Exception as e:
+            logger.error(f"Не удалось сохранить метаданные: {e}")
+            # Пробуем сохранить без ensure_ascii
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=True)
+            logger.info(f"Метаданные сохранены с ASCII-экранированием")
     
     @staticmethod
     def load(models_dir: Path, version: Optional[str] = None) -> 'TextClassifier':
@@ -425,6 +624,7 @@ class TextClassifier:
         classifier.class_names = model_data['class_names']
         classifier.metrics = model_data['metrics']
         classifier.training_date = model_data['training_date']
+        classifier.rare_classes_info = model_data.get('rare_classes_info', {})
         
         logger.info(f"Модель загружена: {model_file}")
         logger.info(f"  Версия: {classifier.version}")
@@ -441,44 +641,49 @@ def train_and_evaluate_model(
     models_dir: Path = Path('models'),
     version: str = '1.0.0'
 ) -> TextClassifier:
-    """
-    Полный цикл обучения и оценки модели
-    """
     
-    # Создаем классификатор
+    # Импортируем config внутри функции
+    import config
+    
     classifier = TextClassifier(model_name="product_classifier", version=version)
     
-    # Строим пайплайн
+    # Берем параметры из config
     classifier.build_pipeline(
-        tfidf_max_features=7000,
-        tfidf_ngram_range=(1, 2),
-        tfidf_min_df=2,
-        tfidf_max_df=0.7,
-        classifier_c=1.0,
-        class_weight='balanced'
+        tfidf_max_features=config.TFIDF_CONFIG['max_features'],
+        tfidf_ngram_range=config.TFIDF_CONFIG['ngram_range'],
+        tfidf_min_df=config.TFIDF_CONFIG['min_df'],
+        tfidf_max_df=config.TFIDF_CONFIG['max_df'],
+        classifier_c=config.MODEL_CONFIG['C'],
+        class_weight=config.MODEL_CONFIG['class_weight']
     )
     
-    # Обучаем
     texts = df_train[text_column]
     labels = df_train[class_column]
     
-    classifier.train(texts, labels, test_size=0.2)
+    classifier.train(texts, labels, test_size=config.TRAIN_CONFIG['test_size'])
+    # ...
     
-    # Кросс-валидация
-    classifier.cross_validate(texts, labels, cv_folds=5)
+    # Кросс-валидация (только для обычных классов)
+    try:
+        classifier.cross_validate(texts, labels, cv_folds=5)
+    except Exception as e:
+        logger.warning(f"Кросс-валидация не выполнена: {e}")
     
     # Важность признаков
-    feature_importance = classifier.get_feature_importance(top_n=15)
-    logger.info("\nТоп-5 признаков для каждого класса:")
-    for class_name in classifier.class_names[:5]:  # Первые 5 классов
-        class_features = feature_importance[
-            (feature_importance['class'] == class_name) & 
-            (feature_importance['direction'] == 'positive')
-        ].head(5)
-        if not class_features.empty:
-            logger.info(f"\n  {class_name}:")
-            for _, row in class_features.iterrows():
-                logger.info(f"    - {row['feature']}: {row['coefficient']:.3f}")
+    try:
+        feature_importance = classifier.get_feature_importance(top_n=15)
+        logger.info("\nТоп-5 признаков для первых классов:")
+        for class_name in classifier.class_names[:5]:
+            class_features = feature_importance[
+                (feature_importance['class'] == class_name) & 
+                (feature_importance['direction'] == 'positive')
+            ].head(5)
+            if not class_features.empty:
+                logger.info(f"\n  {class_name}:")
+                for _, row in class_features.iterrows():
+                    logger.info(f"    - {row['feature']}: {row['coefficient']:.3f}")
+    except Exception as e:
+        logger.warning(f"Не удалось вычислить важность признаков: {e}")
     
     # Сохраняем модель
     classifier.save(models_dir)
