@@ -30,8 +30,8 @@ for dir_path in [RAW_DATA_DIR, PROCESSED_DATA_DIR, EXTERNAL_DATA_DIR,
 # ФАЙЛЫ ДАННЫХ
 # ============================================================
 
-CLASSIFIED_FILE = RAW_DATA_DIR / "classified_40k.xlsx"
-UNCLASSIFIED_FILE = RAW_DATA_DIR / "unclassified_18k.xlsx"
+CLASSIFIED_FILE = RAW_DATA_DIR / "classified_augmented.xlsx"
+UNCLASSIFIED_FILE = RAW_DATA_DIR / "classified_new.xlsx"
 STOPWORDS_FILE = EXTERNAL_DATA_DIR / "stopwords_ru.txt"
 
 # ============================================================
@@ -64,7 +64,7 @@ CUSTOM_STOPWORDS = [
 # ============================================================
 
 TFIDF_CONFIG = {
-    "max_features": 50000,
+    "max_features": 30000,
     "ngram_range": (1, 3),
     "min_df": 1,
     "max_df": 0.8,
@@ -89,7 +89,7 @@ MODEL_CONFIG = {
 }
 
 MODEL_NAME = "product_classifier"
-MODEL_VERSION = "1.1.0"  # Новая версия!
+MODEL_VERSION = "1.2.0"  # Новая версия!
 
 # ============================================================
 # ПАРАМЕТРЫ ОБУЧЕНИЯ

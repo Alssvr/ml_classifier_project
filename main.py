@@ -82,6 +82,23 @@ def train_mode():
         version=config.MODEL_VERSION
     )
     
+    # Извлекаем правила
+    from src.rules_classifier import RuleBasedClassifier
+    
+    rule_clf = RuleBasedClassifier()
+    rule_clf.auto_extract_rules(
+        processed,
+        text_col='text_processed',
+        class_col=config.LABEL_COLUMN,
+        min_confidence=0.9,
+        max_rules=300
+    )
+    rule_clf.save(config.MODELS_DIR / 'rule_classifier.pkl')
+    
+    stats = rule_clf.get_stats()
+    print(f"Создано правил: {stats['rules_count']}")
+    print(f"Покрытие обучающей выборки: {stats['coverage']*100:.1f}%")
+    
     print("\n" + "="*60)
     print("ОБУЧЕНИЕ ЗАВЕРШЕНО")
     print("="*60)
@@ -157,41 +174,60 @@ def predict_mode():
     # Загружаем модель
     try:
         classifier = TextClassifier.load(config.MODELS_DIR)
+        print(f"ML модель загружена: {classifier.version}")
     except Exception as e:
         logger.error(f"Не удалось загрузить модель: {e}")
         logger.info("Сначала запустите обучение: python main.py --mode train")
         return None
-    
+        
+       
     # Препроцессор
     preprocessor = RussianTextPreprocessor(
         use_lemmatization=config.PREPROCESSING_CONFIG['use_lemmatization']
     )
     
-    # Классифицируем
-    results = classify_new_data(
-        input_path=config.UNCLASSIFIED_FILE,
-        output_dir=config.PROCESSED_DATA_DIR,
-        classifier=classifier,
-        preprocessor=preprocessor,
+    # Используем чистый Predictor
+    from src.predict import Predictor
+    predictor = Predictor(classifier, preprocessor)
+    
+    # Загружаем данные
+    df = load_excel_with_progress(config.UNCLASSIFIED_FILE)
+    
+    result_df = predictor.predict_dataframe(
+        df,
         text_column=config.TEXT_COLUMN,
         id_column=config.ID_COLUMN,
         confidence_threshold=config.PREDICTION_CONFIG['confidence_threshold']
     )
     
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_path = config.PROCESSED_DATA_DIR / f"classified_{timestamp}.xlsx"
+    
+    predictor.save_results(
+        result_df,
+        output_path,
+        create_review_file=False
+    )
+    
+    # Статистика
+    confident = (~df['needs_review']).sum() if 'needs_review' in df.columns else 0
+    needs_review = df['needs_review'].sum() if 'needs_review' in df.columns else len(df)
+    
     print("\n" + "="*60)
     print("КЛАССИФИКАЦИЯ ЗАВЕРШЕНА")
     print("="*60)
-    print(f"Всего обработано: {results['total_records']:,} записей")
-    print(f"Уверенных: {results['confident_records']:,} "
-          f"({results['confident_records']/results['total_records']*100:.1f}%)")
-    print(f"Требуют проверки: {results['needs_review_records']:,}")
-    print(f"\nРезультат: {results['main_result']}")
-    if results['review_file']:
-        print(f"На проверку: {results['review_file']}")
+    print(f"Всего обработано: {len(df):,} записей")
+    print(f"Уверенных: {confident:,} ({confident/len(result_df)*100:.1f}%)")
+    print(f"Требуют проверки: {needs_review:,}")
+    print(f"\nРезультат: {output_path}")
     
-    return results
-
-
+    return {
+        'total': len(result_df),
+        'confident': confident,
+        'needs_review': needs_review,
+        'output': output_path
+    }
+    
 def active_mode():
     """Режим активного обучения"""
     

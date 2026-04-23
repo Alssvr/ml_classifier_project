@@ -76,6 +76,9 @@ class RussianTextPreprocessor:
         # Базовая очистка
         text = clean_text(text)
         
+        # Прировнять ё и е
+        text = text.replace('ё', 'е')
+        
         # Сохраняем технические паттерны (временно заменяем на токены)
         text = self.extract_tech_features(text)
         

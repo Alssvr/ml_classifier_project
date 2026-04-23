@@ -82,7 +82,7 @@ class Predictor:
             all_predictions.extend(predictions_batch['predicted_class'].tolist())
             all_confidences.extend(predictions_batch['confidence'].tolist())
             all_second_guesses.extend(predictions_batch['second_guess'].tolist())
-            all_probabilities.extend(predictions_batch['class_probabilities'].tolist())
+           #  all_probabilities.extend(predictions_batch['class_probabilities'].tolist())
             
             # Определяем необходимость экспертной проверки
             # Определяем необходимость экспертной проверки
@@ -96,7 +96,7 @@ class Predictor:
         result_df['confidence'] = all_confidences
         result_df['second_guess'] = all_second_guesses
         result_df['needs_review'] = all_needs_review
-        result_df['class_probabilities'] = all_probabilities
+        # result_df['class_probabilities'] = all_probabilities
         
         # Для пустых текстов ставим специальные значения
         if empty_count > 0:
@@ -146,12 +146,10 @@ class Predictor:
                      df: pd.DataFrame,
                      output_path: Path,
                      include_probabilities: bool = False,
-                     create_review_file: bool = True) -> Tuple[Path, Optional[Path]]:
+                     create_review_file: bool = False) -> Tuple[Path, Optional[Path]]:
         """
         Сохранение результатов классификации
         
-        Returns:
-            Путь к основному файлу и путь к файлу для проверки (если создан)
         """
         
         output_path = Path(output_path)
@@ -160,40 +158,34 @@ class Predictor:
         # Подготовка колонок для сохранения
         export_columns = [
             'ID', 'Наименование', 'predicted_class', 'confidence',
-            'second_guess', 'classification_status'
+            'second_guess', 'classification_status',
+            'expert_decision', 'expert_label', 'expert_comment'
         ]
         
         # Добавляем существующие колонки
         available_columns = [c for c in export_columns if c in df.columns]
         export_df = df[available_columns].copy()
         
-        # Округляем confidence для читаемости
-        export_df['confidence'] = export_df['confidence'].round(4)
+        # Добавляем пустые колонки для эксперта, если их нет
+        for col in ['expert_decision', 'expert_label', 'expert_comment']:
+            if col not in export_df.columns:
+                export_df[col] = ''        
         
-        # Сохраняем основной файл
+        # Округляем confidence для читаемости
+        if 'confidence' in export_df.columns:
+            export_df['confidence'] = export_df['confidence'].round(4)
+        
+        # Сохраняем файл
         save_excel_safe(export_df, output_path)
         logger.info(f"Результаты сохранены: {output_path}")
         
-        review_path = None
+        # Статистика для экспертов
+        needs_review = (export_df['classification_status'] == 'NEEDS_REVIEW').sum()
+        if needs_review > 0:
+            logger.info(f"  - Требуют проверки эксперта: {needs_review} записей")
+            logger.info(f"  - Заполните колонки 'expert_decision' и 'expert_label' для этих записей")
         
-        # Создаем отдельный файл для проверки
-        if create_review_file:
-            review_df = df[df['needs_review'] == True].copy()
-            
-            if len(review_df) > 0:
-                review_columns = [
-                    'ID', 'Наименование', 'predicted_class', 'confidence',
-                    'second_guess', 'class_probabilities'
-                ]
-                review_available = [c for c in review_columns if c in review_df.columns]
-                review_export = review_df[review_available].copy()
-                review_export['confidence'] = review_export['confidence'].round(4)
-                
-                review_path = output_path.parent / f"{output_path.stem}_needs_review.xlsx"
-                save_excel_safe(review_export, review_path)
-                logger.info(f"Записи для проверки сохранены: {review_path} ({len(review_export)} шт.)")
-        
-        return output_path, review_path
+        return output_path
     
     def export_for_expert_review(self,
                                  df: pd.DataFrame,
