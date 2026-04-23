@@ -25,9 +25,8 @@
 Создайте или скопируйте Excel-файлы в папку `data/raw/`:
 
 data/raw/
-├── classified_train.xlsx # Уже размеченные товары
-
-└── classified_new.xlsx # Новые товары для классификации
+├── classified_train.xlsx # Уже размеченные товары  
+   └── classified_new.xlsx # Новые товары для классификации
 
 
 **Важно!** Файлы должны иметь колонки:
