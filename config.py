@@ -66,7 +66,7 @@ CUSTOM_STOPWORDS = [
 TFIDF_CONFIG = {
     "max_features": 30000,
     "ngram_range": (1, 3),
-    "min_df": 1,
+    "min_df": 3,
     "max_df": 0.8,
     "sublinear_tf": True,
     "norm": "l2",
@@ -80,7 +80,7 @@ TFIDF_CONFIG = {
 
 MODEL_CONFIG = {
     "classifier_type": "logistic_regression",
-    "C": 1.0,
+    "C": 5.0,
     "max_iter": 1000,
     "class_weight": "balanced",
     "solver": "lbfgs",
