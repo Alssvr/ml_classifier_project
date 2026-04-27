@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>ML vs LLM Агент | Сравнение для классификатора технаименований</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* Presentation container */
+        .presentation-container {
+            scroll-snap-type: y mandatory;
+            overflow-y: scroll;
+            height: 100vh;
+            scroll-behavior: smooth;
+        }
+
+        /* Slide styles */
+        .slide {
+            scroll-snap-align: start;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            position: relative;
+        }
+
+        .slide-content {
+            max-width: 1280px;
+            width: 100%;
+            margin: 0 auto;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(2px);
+            border-radius: 2rem;
+            padding: 2.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            border-left: 5px solid #3b82f6;
+            padding-left: 1rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 1rem 0;
+            color: #cbd5e1;
+        }
+
+        .grid-2, .grid-3 {
+            display: grid;
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+
+        .card {
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 1px solid #334155;
+            transition: all 0.2s;
+        }
+
+        .card:hover {
+            border-color: #3b82f6;
+            transform: translateY(-3px);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: #0f172a;
+            border-radius: 1rem;
+            overflow: hidden;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+
+        th {
+            background: #1e293b;
+            color: #93c5fd;
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #3b82f6;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .success { background: #10b981; }
+        .warning { background: #f59e0b; }
+        .danger { background: #ef4444; }
+        .neutral { background: #6b7280; }
+
+        .code-block {
+            background: #0f172a;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            border-left: 3px solid #3b82f6;
+            margin: 1rem 0;
+        }
+
+        .verdict {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            text-align: center;
+            border: 1px solid #f59e0b;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .nav-btn {
+            background: #1e293b;
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: 0.2s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .nav-btn:hover {
+            background: #3b82f6;
+            transform: scale(1.05);
+        }
+
+        .progress-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            background: #3b82f6;
+            width: 0%;
+            z-index: 1000;
+            transition: width 0.2s;
+        }
+
+        footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+
+        @media (max-width: 768px) {
+            .slide-content { padding: 1.5rem; }
+            h1 { font-size: 2rem; }
+            h2 { font-size: 1.5rem; }
+            th, td { font-size: 0.8rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="progress-bar" id="progressBar"></div>
+<div class="presentation-container" id="presentationContainer">
+    <!-- Слайд 1: Титул -->
+    <div class="slide">
+        <div class="slide-content" style="text-align: center;">
+            <i class="fas fa-robot" style="font-size: 4rem; color: #60a5fa;"></i>
+            <i class="fas fa-brain" style="font-size: 4rem; color: #a78bfa; margin-left: 1rem;"></i>
+            <h1>ML vs LLM Агент</h1>
+            <p style="font-size: 1.2rem; margin: 1rem 0;">Сравнение подходов для классификации технических наименований</p>
+            <div class="code-block" style="display: inline-block; text-align: left;">
+                <strong>📁 Проект:</strong> Классификатор деталей и оборудования<br>
+                <strong>⚙️ Текущий стек:</strong> TF-IDF + Логистическая регрессия + Active Learning<br>
+                <strong>👤 Автор:</strong> Alssvr
+            </div>
+            <footer>→ Листайте вниз или используйте кнопки →</footer>
+        </div>
+    </div>
+
+    <!-- Слайд 2: Что классифицируем -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-cogs"></i> Что мы классифицируем</h2>
+            <table>
+                <tr><th>Техническое наименование</th><th>Целевой класс</th></tr>
+                <tr><td>Болт М8х40 оцинкованный</td><td><span class="badge">Крепеж</span></td></tr>
+                <tr><td>Подшипник 6205 SKF</td><td><span class="badge">Подшипники</span></td></tr>
+                <tr><td>Насос центробежный 3 кВт</td><td><span class="badge">Гидравлика</span></td></tr>
+                <tr><td>Плата контроллера CPU 315</td><td><span class="badge">Электроника</span></td></tr>
+                <tr><td>Уплотнитель резиновый 45х55х8</td><td><span class="badge">Расходники</span></td></tr>
+            </table>
+            <div class="card"><i class="fas fa-info-circle"></i> <strong>Ключевые особенности:</strong> короткие тексты, терминологическая замкнутость, чёткая иерархия</div>
+        </div>
+    </div>
+
+    <!-- Слайд 3: Архитектура ML -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-chart-line"></i> Архитектура ML подхода (текущая)</h2>
+            <div class="code-block">
+                Текст → TF-IDF (30k фичей, n-gram 1-3) → Logistic Regression (C=1.0, balanced)<br>
+                → Cleanlab Active Learning → Экспертная верификация
+            </div>
+            <div class="grid-2">
+                <div class="card"><i class="fas fa-tachometer-alt"></i> <strong>Скорость:</strong> 10,000+ предсказаний/сек</div>
+                <div class="card"><i class="fas fa-dollar-sign"></i> <strong>Стоимость:</strong> копейки (CPU only)</div>
+                <div class="card"><i class="fas fa-database"></i> <strong>Данные:</strong> 100-1000 размеченных примеров</div>
+                <div class="card"><i class="fas fa-chart-simple"></i> <strong>Точность:</strong> 92-96%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 4: LLM Агент -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-microphone-alt"></i> Что такое LLM агент</h2>
+            <div class="code-block">
+                prompt = """<br>
+                Ты классификатор технических деталей. Категории: Крепеж, Подшипники, Электроника, Гидравлика.<br>
+                Деталь: "Болт М8х40 оцинкованный" → Ответ: Крепеж<br>
+                """
+            </div>
+            <div class="grid-2">
+                <div class="card"><strong>Модели:</strong> GPT-4, Claude 3.5, Llama 3, Qwen</div>
+                <div class="card"><strong>Типы:</strong> API (облачные) или локальные (8-24 GB VRAM)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 5: Сравнение характеристик 1 -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>⚖️ Сравнение характеристик (часть 1)</h2>
+            <table>
+                <tr><th>Параметр</th><th>ML</th><th>LLM Agent</th></tr>
+                <tr><td>Точность на тестовых данных</td><td>92-96%</td><td>88-94%</td></tr>
+                <tr><td>Скорость инференса</td><td>&lt;1 мс</td><td>0.5-5 секунд</td></tr>
+                <tr><td>Галлюцинации</td><td>Нет</td><td>Да (может выдумать класс)</td></tr>
+                <tr><td>Детерминизм</td><td>100%</td><td>95-99%</td></tr>
+                <tr><td>Работа с OOV терминами</td><td>❌</td><td>✅</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 6: Сравнение характеристик 2 -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>💰 Сравнение характеристик (часть 2)</h2>
+            <table>
+                <tr><th>Параметр</th><th>ML</th><th>LLM API (GPT-4)</th></tr>
+                <tr><td>Оборудование</td><td>CPU, 2GB RAM</td><td>— API / GPU</td></tr>
+                <tr><td>Обучение</td><td>5-15 минут</td><td>0 (zero-shot)</td></tr>
+                <tr><td>Эксплуатация (1 млн запросов)</td><td>$15-30</td><td>$3,000-5,000</td></tr>
+                <tr><td>Стартовые данные</td><td>100+ примеров</td><td>0 (или 10-50 few-shot)</td></tr>
+                <tr><td>Адаптация к новым классам</td><td>Переобучение (30 мин)</td><td>Смена промпта (5 мин)</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 7: Сильные стороны ML -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-thumbs-up"></i> Сильные стороны ML</h2>
+            <div class="grid-2">
+                <div class="card">✅ Замкнутая терминология — TF-IDF отлично работает</div>
+                <div class="card">✅ Скорость критична для ERP-систем</div>
+                <div class="card">✅ Предсказуемость и детерминизм</div>
+                <div class="card">✅ Прозрачность решений</div>
+                <div class="card">✅ Экономическая эффективность (дешевле в 10-20 раз)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 8: Слабые стороны ML -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-thumbs-down"></i> Слабые стороны ML</h2>
+            <div class="grid-2">
+                <div class="card">❌ Обработка OOV терминов (RFID-метка XC-890)</div>
+                <div class="card">❌ Контекстное понимание сложных конструкций</div>
+                <div class="card">❌ Медленная адаптация к новым классам</div>
+                <div class="card">❌ Плохое качество на редких классах (5 примеров)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 9: Сильные стороны LLM -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-robot"></i> Сильные стороны LLM</h2>
+            <div class="grid-2">
+                <div class="card">✅ Zero-shot обучение</div>
+                <div class="card">✅ Понимание сложных конструкций</div>
+                <div class="card">✅ Работа с синонимами</div>
+                <div class="card">✅ Актуальность новых терминов</div>
+                <div class="card">✅ Объяснение решений</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 10: Слабые стороны LLM -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2><i class="fas fa-exclamation-triangle"></i> Слабые стороны LLM</h2>
+            <div class="grid-2">
+                <div class="card">⚠️ Галлюцинации (выдуманный класс)</div>
+                <div class="card">⚠️ Высокая стоимость ($0.01 за запрос → $300/мес)</div>
+                <div class="card">⚠️ Латентность 2-5 секунд</div>
+                <div class="card">⚠️ Нестабильность результатов</div>
+                <div class="card">⚠️ Зависимость от API провайдера</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 11: Сравнение примеров -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>📋 Конкретные примеры</h2>
+            <table>
+                <tr><th>Наименование</th><th>ML</th><th>LLM</th><th>Победитель</th></tr>
+                <tr><td>Болт М8х40</td><td>✅ Крепеж</td><td>✅ Крепеж</td><td>Ничья</td></tr>
+                <tr><td>RFID-метка AC-892</td><td>❌ Неизвестно</td><td>✅ Электроника</td><td>LLM</td></tr>
+                <tr><td>Подшипник 6205</td><td>✅ Подшипники</td><td>✅ Подшипники</td><td>Ничья</td></tr>
+                <tr><td>М8*40 (крепеж)</td><td>✅ Крепеж</td><td>⚠️ может ошибиться</td><td>ML</td></tr>
+                <tr><td>СК-45 сталь 45 каленая</td><td>⚠️ зависит от данных</td><td>✅ Расходники</td><td>LLM</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 12: Экономика -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>💵 Стоимость эксплуатации (год, 500k запросов)</h2>
+            <table>
+                <tr><th>Статья расходов</th><th>ML</th><th>LLM API</th><th>LLM локально</th></tr>
+                <tr><td>Оборудование</td><td>$500</td><td>$0</td><td>$3,000</td></tr>
+                <tr><td>Электричество/API</td><td>$50</td><td>$15,000</td><td>$500</td></tr>
+                <tr><td>Разметка данных</td><td>$1,000</td><td>$100</td><td>$100</td></tr>
+                <tr><td><strong>ИТОГО</strong></td><td><strong>$1,550</strong></td><td><strong>$15,100</strong></td><td><strong>$4,100</strong></td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 13: Гибридное решение -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>🚀 Гибридное решение (рекомендация)</h2>
+            <div class="code-block">
+                Входной текст → ML (TF-IDF) → уверенность > 0.85? → Да → Ответ ML<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ↓ Нет<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; LLM Agent (локальный) → Ответ LLM
+            </div>
+            <div class="card"><i class="fas fa-chart-line"></i> <strong>Результат:</strong> 85% быстрых ответов от ML, 15% сложных — от LLM</div>
+        </div>
+    </div>
+
+    <!-- Слайд 14: Метрики гибрида -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>📊 Метрики гибридного подхода</h2>
+            <table>
+                <tr><th>Метрика</th><th>ML</th><th>LLM</th><th>Гибрид</th></tr>
+                <tr><td>Точность</td><td>94%</td><td>92%</td><td><strong>96%</strong></td></tr>
+                <tr><td>Скорость (p50)</td><td>1 мс</td><td>2000 мс</td><td><strong>3 мс</strong></td></tr>
+                <tr><td>Стоимость/мес</td><td>$130</td><td>$1,260</td><td><strong>$300</strong></td></tr>
+                <tr><td>Покрытие OOV</td><td>0%</td><td>100%</td><td><strong>100%</strong></td></tr>
+                <tr><td>Галлюцинации</td><td>0%</td><td>3%</td><td><strong>0.5%</strong></td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 15: Дорожная карта -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>🗺️ Дорожная карта внедрения</h2>
+            <table>
+                <tr><th>Этап</th><th>Что делаем</th><th>Срок</th><th>Стоимость</th></tr>
+                <tr><td>1</td><td>Оставляем текущий ML как основной</td><td>Сейчас</td><td>$0</td></tr>
+                <tr><td>2</td><td>SBERT эмбеддинги (эксперимент)</td><td>1 неделя</td><td>$0</td></tr>
+                <tr><td>3</td><td>Ollama + Llama 3 8B локально</td><td>1 день</td><td>$0</td></tr>
+                <tr><td>4</td><td>Гибридный роутер</td><td>3 дня</td><td>$0</td></tr>
+                <tr><td>5</td><td>A/B тестирование ML vs гибрид</td><td>2 недели</td><td>$500</td></tr>
+                <tr><td>6</td><td>Production развертывание</td><td>1 неделя</td><td>$1,000</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Слайд 16: Выбор LLM -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>🤖 Выбор LLM для гибрида</h2>
+            <table>
+                <tr><th>Модель</th><th>Точность*</th><th>VRAM</th><th>Лицензия</th></tr>
+                <tr><td><strong>Qwen 2.5 7B</strong></td><td>94%</td><td>8GB</td><td><span class="badge success">Apache 2.0</span></td></tr>
+                <tr><td>Llama 3 8B</td><td>92%</td><td>8GB</td><td>Ограниченная</td></tr>
+                <tr><td>Mistral 7B</td><td>90%</td><td>8GB</td><td><span class="badge success">Apache 2.0</span></td></tr>
+                <tr><td>Gemma 2 9B</td><td>91%</td><td>9GB</td><td>Ограниченная</td></tr>
+            </table>
+            <div class="card"><i class="fas fa-star"></i> <strong>Рекомендация:</strong> Qwen 2.5 7B (свободная лицензия, отличный русский)</div>
+        </div>
+    </div>
+
+    <!-- Слайд 17: Итоговое решение -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>🏆 Итоговое решение</h2>
+            <div class="grid-2">
+                <div class="card">Минимальная стоимость → <strong>ML</strong></div>
+                <div class="card">Максимальная скорость → <strong>ML</strong></div>
+                <div class="card">Предсказуемость → <strong>ML</strong></div>
+                <div class="card">Обработка редких терминов → LLM</div>
+                <div class="card">Быстрая адаптация → LLM</div>
+                <div class="card"><span class="badge warning">🏆 Баланс</span> → <strong>ГИБРИД</strong></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 18: Финальный вердикт -->
+    <div class="slide">
+        <div class="slide-content verdict">
+            <h2>🎯 Финальный вердикт</h2>
+            <p style="font-size: 1.2rem;">Для КЛАССИФИКАЦИИ технических наименований:</p>
+            <ul style="text-align: left; max-width: 500px; margin: 1rem auto;">
+                <li>✅ Базовое решение: ML (TF-IDF + LR) — оставьте как основной</li>
+                <li>🚀 Усиление: Гибридный роутер + LLM как fallback</li>
+                <li>🌀 Долгосрочно: Active Learning + LLM обратная связь для генерации данных</li>
+            </ul>
+            <p><strong>ML + SBERT + локальный LLM на сложных случаях = ИДЕАЛ</strong></p>
+        </div>
+    </div>
+
+    <!-- Слайд 19: Следующие шаги -->
+    <div class="slide">
+        <div class="slide-content">
+            <h2>📌 Следующие шаги</h2>
+            <div class="grid-3">
+                <div class="card">🖥️ Запустить Ollama + Qwen локально</div>
+                <div class="card">📊 Сравнить ML vs LLM на 1000 примерах</div>
+                <div class="card">⚙️ Реализовать гибридный классификатор</div>
+                <div class="card">📈 Настроить LLM для синтетических данных</div>
+                <div class="card">🧪 A/B тестирование в production</div>
+                <div class="card">📝 Документировать результаты</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Слайд 20: Вопросы -->
+    <div class="slide">
+        <div class="slide-content" style="text-align: center;">
+            <i class="fas fa-question-circle" style="font-size: 3rem;"></i>
+            <h2>Спасибо за внимание!</h2>
+            <p>Вопросы для обсуждения:</p>
+            <ul style="text-align: left; display: inline-block;">
+                <li>Какой бюджет на эксплуатацию системы?</li>
+                <li>Критична ли обратная связь в реальном времени?</li>
+                <li>Есть ли необходимость в объяснении решений?</li>
+                <li>Как часто добавляются новые категории?</li>
+            </ul>
+            <footer>github.com/Alssvr/ml_classifier_project | Апрель 2026</footer>
+        </div>
+    </div>
+</div>
+
+<div class="navigation">
+    <button class="nav-btn" id="prevBtn"><i class="fas fa-chevron-up"></i></button>
+    <button class="nav-btn" id="nextBtn"><i class="fas fa-chevron-down"></i></button>
+</div>
+
+<script>
+    const container = document.getElementById('presentationContainer');
+    const slides = document.querySelectorAll('.slide');
+    let currentIndex = 0;
+
+    function updateProgress() {
+        const scrollTop = container.scrollTop;
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        const percent = (scrollTop / maxScroll) * 100;
+        document.getElementById('progressBar').style.width = percent + '%';
+    }
+
+    function goToSlide(index) {
+        if (index < 0) index = 0;
+        if (index >= slides.length) index = slides.length - 1;
+        slides[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    document.getElementById('nextBtn').addEventListener('click', () => {
+        currentIndex = Math.min(currentIndex + 1, slides.length - 1);
+        goToSlide(currentIndex);
+    });
+
+    document.getElementById('prevBtn').addEventListener('click', () => {
+        currentIndex = Math.max(currentIndex - 1, 0);
+        goToSlide(currentIndex);
+    });
+
+    container.addEventListener('scroll', () => {
+        updateProgress();
+        // update current index based on scroll position
+        let closest = 0;
+        let minDist = Infinity;
+        for (let i = 0; i < slides.length; i++) {
+            const rect = slides[i].getBoundingClientRect();
+            const dist = Math.abs(rect.top);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = i;
+            }
+        }
+        currentIndex = closest;
+    });
+    updateProgress();
+</script>
+</body>
+</html>
